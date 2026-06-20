@@ -1,0 +1,64 @@
+Proyecto ProxyLogon
+
+
+
+### Fase 1: **  ProxyLogon **
+
+ Crear un script que genere logs realistas de IIS y Windows Event Logs basados en la cadena de ataque ProxyLogon.
+
+**Deliverables**:
+- Script que produce:
+  - `iis_access_logs.json` (50+ eventos simulados de ataque HTTP)
+  - `windows_event_logs.json` (proceso, autenticación, cambios de registro)
+- Formato: JSON normalizado ( Elasticsearch)
+- Documentación: Qué evento = qué fase del ataque
+
+---
+
+### Fase 2 paralela al 1: **SIEM (Elasticsearch + Kibana + Detección)**
+
+* Ingestar logs, crear dashboards, diseñar 4-5 reglas de detección que identifiquen las fases del ataque.
+
+**Deliverables**:
+- Docker Compose: Stack ELK lista para correr
+- 4-5 reglas de correlación (en KQL/Logstash) que detectan:
+  - Fase 1: SSRF bypass `/autodiscover/autodiscover.json?..=`
+  - Fase 2: Upload de web shell POST a `/ecp/`
+  - Fase 3: C2 callbacks (PowerShell, conexiones sospechosas)
+  - Fase 4: Data exfiltration (patrones anómalos de tráfico)
+- Dashboards: 1 overview + 1 detallado por fase
+- Plan de triage: Checklist para confirmar NO es falso positivo
+
+**Herramientas**: Docker, Elasticsearch 7.x, Kibana, Logstash
+
+Se puede ir creando paralelamente al script de proxylogon
+---
+
+### **SOAR (TheHive + Automatización de Respuesta)**
+
+**Recibir alerta del SIEM, crear playbook que automatiza triage + respuesta, simular ejecución.
+
+**Deliverables**:
+- Docker Compose: TheHive 5.x + Cortex (opcional)
+- Playbook automatizado (JSON) con:
+  - Trigger: Alerta de SIEM (webhook)
+  - Acciones: Enriquecimiento (IP reputation en VirusTotal API), Contención (bloqueo simulado), Notificación
+  - Flujo: Validar IoCs → Aislar host → Crear ticket → Notificar
+- Caso de incidente simulado: 1 caso completo con evidencia
+- Runbook manual: Pasos en PDF para cuando SOAR falla
+
+**Herramientas**: Docker, TheHive, Python (para webhooks/API calls)
+
+**Timeline**: Semanas 2-3 (paralelo a A).
+
+---
+
+### Integración Final
+
+
+1. Conectar logs → SIEM B (validar que detecta)
+2. Conectar alerta SIEM → SOAR C (validar que responde)
+3. Grabar demo: mostrando flujo completo
+4. Ensayar presentación
+
+ TheHive + Elasticsearch tienen documentación clara
