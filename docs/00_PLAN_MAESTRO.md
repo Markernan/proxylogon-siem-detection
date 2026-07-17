@@ -1,7 +1,9 @@
 # Plan Maestro — Proyecto ProxyLogon (Detección SIEM)
 
 ## Estado del equipo
+## Estado del equipo
 - **Equipo**:
+- **Plazo**: 4 días desde el 13/07/2026 hasta la sustentación.
 - **Plazo**: 4 días desde el 13/07/2026 hasta la sustentación.
 - **Alcance elegido**: SOLO detección SIEM (no SOAR/TheHive). La rúbrica dice "escoger uno".
 - **Herramienta SIEM**: Splunk, instalado y corriendo en `http://26.28.194.96:8000`.
@@ -39,6 +41,20 @@ JSON inventado, (c) es literalmente el formato que un SOC real vería en Splunk.
 El dataset no es "puro ataque" — incluye tráfico normal de usuarios (logins válidos a OWA, requests
 normales de Outlook/Autodiscover, procesos benignos) para que el ejercicio de triage tenga sentido:
 hay que encontrar la aguja en el pajar, no solo mostrar una tabla ya filtrada de eventos maliciosos.
+
+## Decisión de diseño 4: fechas — incidente simulado reciente (2026) vs evidencia real (2021)
+- Los datos **sintéticos** de CFP (IIS + Windows) están fechados el **2026-07-16** (unos días antes de
+  la sustentación), para que la demo represente un incidente **actual** en la organización hipotética.
+  Es plausible y hasta didáctico: un Exchange sin parchear en 2026 sigue siendo vulnerable a
+  ProxyLogon — esto refuerza la causa raíz del incidente (parche crítico no aplicado).
+- El dataset **real de OTRF** conserva su fecha original **2021-03-14**, porque es evidencia genuina
+  capturada en esa fecha en el laboratorio de OTRF. **No se falsifica** — alterar sus timestamps
+  destruiría su valor como prueba real. El split es honesto y hasta más fuerte: "CFP fue atacada
+  ahora (2026); para probar que nuestras detecciones sirven, las validamos contra una captura real
+  del exploit (2021)".
+- Consecuencia práctica para la demo: al buscar en Splunk, usar rango **"Last 7 days"** o **"All
+  time"**. El gráfico de volumen del Overview está acotado a los sourcetypes sintéticos para no
+  mostrar un hueco temporal entre 2026 y 2021.
 
 ## Cadena de vulnerabilidades ProxyLogon (referencia técnica)
 - **CVE-2021-26855 (SSRF, pre-auth)**: el atacante envía un request HTTP a Exchange falsificando el
@@ -126,12 +142,15 @@ Detalle completo de cada regla (lógica SPL) en [`03_guia_splunk.md`](03_guia_sp
   7 es la prueba de falsos positivos (verificada en 0).
 - 2 dashboards (`ProxyLogon - Overview`, `ProxyLogon - Detalle por Fase`), este último incluye un
   panel final mostrando la validación contra datos reales.
-- Cifras finales limpias de cada regla (verificadas 14/07/2026 tras corregir timestamps y duplicados):
+- Cifras finales de cada regla (verificadas 14/07/2026 tras limpiar el índice y recargar datos):
   Regla 1 = 7, Regla 2 = 2, Regla 3 = 4, Regla 4 = 1, Regla 5 = 1, Regla 6 = 3, Regla 7 = 0.
-- El dataset real de OTRF quedó en su propio sourcetype `json_otrf_real` (con extracción de
-  timestamp corregida vía `props.conf` — el sourcetype `_json` original tenía un bug de fecha, ver
-  "Incidentes resueltos" abajo). El sourcetype `_json` y `sysmon_otrf_real` con datos antiguos siguen
-  huérfanos en el índice pero no los usa ninguna alerta ni dashboard.
+- **Índice limpio**: se vació el índice (`splunk clean eventdata`) y se recargaron los 3 datasets
+  finales una sola vez. Solo hay 3 sourcetypes: `iis` (296), `windows_events_proxylogon` (32),
+  `json_otrf_real` (28). Una sola IP atacante (`103.77.192.219`), un solo webshell (`help.aspx`), un
+  solo hostname (`EXCH01.cfp-financiera.local`). Las reglas ya no necesitan `dedup` ni exclusiones.
+- **Dashboard "Detalle por Fase" cubre las 9 etapas del kill chain**: Fase 1 (reconocimiento) → Fase 2
+  (SSRF) → Fase 3 (webshell, POST + GET) → Fase 4 (C2, w3wp→cmd) → Fase 5a (export buzón) → Fase 5b
+  (LSASS) → Fase 5c (exfiltración .pst) → línea de tiempo completa → validación contra dataset real.
 
 ## Fuentes externas citables (usar en la presentación y en la ronda de preguntas)
 - [CISA AA21-062A](https://www.cisa.gov/news-events/cybersecurity-advisories/aa21-062a) — advisory

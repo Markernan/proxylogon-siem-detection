@@ -25,7 +25,12 @@ OUT_DIR = "data"
 # Configuracion general de la linea de tiempo
 # ---------------------------------------------------------------------------
 
-ATTACK_DATE = datetime(2021, 3, 2, 8, 0, 0)  # fecha real del incidente ProxyLogon in-the-wild
+# Fecha del incidente SIMULADO en CFP. Se usa una fecha reciente (julio 2026) para que la demo
+# represente un ataque "actual" a la organizacion hipotetica (un Exchange sin parchear en 2026 sigue
+# siendo vulnerable a ProxyLogon — este es justamente el punto de la causa raiz: parche no aplicado).
+# NOTA: el dataset REAL de OTRF conserva su fecha original (2021-03-14), porque es evidencia genuina
+# capturada en esa fecha y no debe falsificarse.
+ATTACK_DATE = datetime(2026, 7, 16, 8, 0, 0)  # incidente simulado en CFP, 2 dias antes de la sustentacion
 EXCHANGE_SERVER_IP = "10.10.20.15"
 EXCHANGE_HOSTNAME = "EXCH01.cfp-financiera.local"  # Corporacion Financiera del Pacifico S.A. (org ficticia)
 ATTACKER_IP = "103.77.192.219"        # IOC real y publico de la campana HAFNIUM/ProxyLogon (CISA AA21-062A)

@@ -118,3 +118,4 @@ responder cualquiera de estas.
     → Agregar una tercera fuente (firewall/EDR), desplegar Sysmon con reglas Sigma en vez de logs
     genéricos, automatizar la respuesta con SOAR, y reducir el SLA de parcheo para activos críticos
     expuestos a internet.
+    

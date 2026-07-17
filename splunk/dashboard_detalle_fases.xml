@@ -2,10 +2,22 @@
   <label>ProxyLogon - Detalle por Fase</label>
   <row>
     <panel>
+      <title>Fase 1 - Reconocimiento: escaneo externo buscando Exchange vulnerable</title>
+      <table>
+        <search>
+          <query>index=proxylogon sourcetype=iis sc_status=403 cs_uri_stem="/autodiscover/autodiscover.xml" | table _time c_ip cs_uri_stem sc_status | sort _time</query>
+          <earliest>0</earliest>
+          <latest></latest>
+        </search>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
       <title>Fase 2 - Explotacion: SSRF Autodiscover Bypass (CVE-2021-26855)</title>
       <table>
         <search>
-          <query>index=proxylogon sourcetype=iis (cs_uri_stem="*autodiscover*" OR cs_uri_stem="*/ecp/*") (cs_uri_query="*@*" OR cs_Cookie="*X-AnonResource-Backend*" OR cs_Cookie="*X-BEResource*") | lookup hafnium_ips src_ip AS c_ip OUTPUT isBad AS ip_conocida_hafnium | search ip_conocida_hafnium=TRUE | dedup _time c_ip cs_uri_stem | table _time c_ip ip_conocida_hafnium cs_uri_stem cs_uri_query sc_status time_taken | sort _time</query>
+          <query>index=proxylogon sourcetype=iis (cs_uri_stem="*autodiscover*" OR cs_uri_stem="*/ecp/*") (cs_uri_query="*@*" OR cs_Cookie="*X-AnonResource-Backend*" OR cs_Cookie="*X-BEResource*") | lookup hafnium_ips src_ip AS c_ip OUTPUT isBad AS ip_conocida_hafnium | table _time c_ip ip_conocida_hafnium cs_uri_stem cs_uri_query sc_status time_taken | sort _time</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>
@@ -17,7 +29,7 @@
       <title>Fase 3 - Instalacion: Escritura del Webshell (CVE-2021-27065)</title>
       <table>
         <search>
-          <query>index=proxylogon sourcetype=iis c_ip="103.77.192.219" ((cs_uri_stem="/ecp/proxyLogon.ecp" cs_method=POST) OR (cs_uri_stem="/owa/auth/help.aspx" cs_method=GET)) | dedup cs_uri_stem | table _time c_ip cs_method cs_uri_stem sc_status time_taken | sort _time</query>
+          <query>index=proxylogon sourcetype=iis ((cs_uri_stem="/ecp/proxyLogon.ecp" cs_method=POST) OR (cs_uri_stem="/owa/auth/help.aspx" cs_method=GET)) | table _time c_ip cs_method cs_uri_stem sc_status time_taken | sort _time</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>
@@ -26,10 +38,10 @@
   </row>
   <row>
     <panel>
-      <title>Fase 4 - Comando y Control: Ejecucion via Webshell</title>
+      <title>Fase 4 - Comando y Control: Ejecucion via Webshell (w3wp.exe genera cmd/powershell)</title>
       <table>
         <search>
-          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=4688 ParentProcessName="*w3wp.exe*" | dedup CommandLine | table _time Computer NewProcessName ParentProcessName CommandLine | sort _time</query>
+          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=4688 ParentProcessName="*w3wp.exe*" | table _time Computer NewProcessName ParentProcessName CommandLine | sort _time</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>
@@ -38,20 +50,20 @@
   </row>
   <row>
     <panel>
-      <title>Fase 5a - Acciones sobre objetivos: Exportacion de buzon</title>
+      <title>Fase 5a - Acciones sobre objetivos: Exportacion de buzon (New-MailboxExportRequest)</title>
       <table>
         <search>
-          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=4104 ScriptBlockText="*New-MailboxExportRequest*" | dedup ScriptBlockText | table _time Computer ScriptBlockText</query>
+          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=4104 ScriptBlockText="*New-MailboxExportRequest*" | table _time Computer ScriptBlockText</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>
       </table>
     </panel>
     <panel>
-      <title>Fase 5b - Acciones sobre objetivos: Acceso a LSASS</title>
+      <title>Fase 5b - Acciones sobre objetivos: Acceso a LSASS (volcado de credenciales)</title>
       <table>
         <search>
-          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=10 TargetProcessName="*lsass.exe*" NOT SourceProcessName IN ("*MsMpEng.exe*", "*procexp*", "*Taskmgr.exe*") | dedup SourceProcessName TargetProcessName | table _time Computer SourceProcessName TargetProcessName GrantedAccess</query>
+          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=10 TargetProcessName="*lsass.exe*" NOT SourceProcessName IN ("*MsMpEng.exe*", "*procexp*", "*Taskmgr.exe*") | table _time Computer SourceProcessName TargetProcessName GrantedAccess</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>
@@ -60,19 +72,33 @@
   </row>
   <row>
     <panel>
-      <title>Linea de tiempo completa del ataque (los 2 sourcetypes correlacionados)</title>
+      <title>Fase 5c - Acciones sobre objetivos: Exfiltracion (descarga del .pst via webshell)</title>
       <table>
         <search>
-          <query>index=proxylogon (sourcetype=iis c_ip="103.77.192.219") OR (sourcetype=windows_events_proxylogon (ParentProcessName="*w3wp.exe*" OR EventCode=4104 OR EventCode=10))
+          <query>index=proxylogon sourcetype=iis cs_uri_stem="*.pst" | table _time c_ip cs_method cs_uri_stem sc_status time_taken | sort _time</query>
+          <earliest>0</earliest>
+          <latest></latest>
+        </search>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Linea de tiempo completa del ataque (correlacion de las 2 fuentes)</title>
+      <table>
+        <search>
+          <query>index=proxylogon (sourcetype=iis (c_ip="103.77.192.219" OR sc_status=403)) OR (sourcetype=windows_events_proxylogon (ParentProcessName="*w3wp.exe*" OR EventCode=4104 OR EventCode=10))
 | eval evento=case(
-    match(cs_uri_query,"@"), "SSRF Autodiscover",
-    cs_uri_stem="/ecp/proxyLogon.ecp", "Escritura webshell (POST)",
-    cs_uri_stem="/owa/auth/help.aspx", "Acceso al webshell",
-    EventCode=4688, "Ejecucion de comando via w3wp.exe",
-    EventCode=4104, "Exportacion de buzon",
-    EventCode=10, "Acceso a LSASS",
+    sc_status=403, "1. Reconocimiento (escaneo externo)",
+    match(cs_uri_query,"@"), "2. SSRF Autodiscover (explotacion)",
+    cs_uri_stem="/ecp/proxyLogon.ecp", "3. Escritura webshell (POST /ecp/)",
+    cs_uri_stem="/owa/auth/help.aspx" AND cs_method="GET", "3. Acceso al webshell (GET)",
+    cs_uri_stem="/owa/auth/help.aspx" AND cs_method="POST", "4. Comando via webshell",
+    EventCode=4688, "4. Ejecucion en host (w3wp -> cmd/powershell)",
+    EventCode=4104, "5a. Exportacion de buzon",
+    EventCode=10, "5b. Acceso a LSASS",
+    match(cs_uri_stem,"\.pst$"), "5c. Exfiltracion (.pst)",
     1=1, "Otro")
-| dedup _time evento
 | table _time evento sourcetype c_ip CommandLine ScriptBlockText
 | sort _time</query>
           <earliest>0</earliest>

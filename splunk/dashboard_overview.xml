@@ -2,10 +2,10 @@
   <label>ProxyLogon - Overview</label>
   <row>
     <panel>
-      <title>Volumen de eventos por fuente (picos de trafico)</title>
+      <title>Volumen de eventos por fuente - incidente CFP (picos de trafico)</title>
       <chart>
         <search>
-          <query>index=proxylogon sourcetype IN (iis, windows_events_proxylogon, json_otrf_real) | timechart span=30m count by sourcetype</query>
+          <query>index=proxylogon sourcetype IN (iis, windows_events_proxylogon) | timechart span=30m count by sourcetype</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>
@@ -18,7 +18,7 @@
       <title>Regla 1: SSRF Autodiscover Bypass</title>
       <single>
         <search>
-          <query>index=proxylogon sourcetype=iis (cs_uri_stem="*autodiscover*" OR cs_uri_stem="*/ecp/*") (cs_uri_query="*@*" OR cs_Cookie="*X-AnonResource-Backend*" OR cs_Cookie="*X-BEResource*") | lookup hafnium_ips src_ip AS c_ip OUTPUT isBad AS ip_conocida_hafnium | search ip_conocida_hafnium=TRUE | dedup _time c_ip cs_uri_stem | stats count</query>
+          <query>index=proxylogon sourcetype=iis (cs_uri_stem="*autodiscover*" OR cs_uri_stem="*/ecp/*") (cs_uri_query="*@*" OR cs_Cookie="*X-AnonResource-Backend*" OR cs_Cookie="*X-BEResource*") | stats count</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>
@@ -28,7 +28,7 @@
       <title>Regla 3: C2 via Webshell</title>
       <single>
         <search>
-          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=4688 ParentProcessName="*w3wp.exe*" | dedup CommandLine | stats count</query>
+          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=4688 ParentProcessName="*w3wp.exe*" | stats count</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>
@@ -38,7 +38,7 @@
       <title>Regla 4: Exportacion de buzon</title>
       <single>
         <search>
-          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=4104 ScriptBlockText="*New-MailboxExportRequest*" | dedup ScriptBlockText | stats count</query>
+          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=4104 ScriptBlockText="*New-MailboxExportRequest*" | stats count</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>
@@ -48,7 +48,7 @@
       <title>Regla 5: Acceso a LSASS</title>
       <single>
         <search>
-          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=10 TargetProcessName="*lsass.exe*" | dedup SourceProcessName TargetProcessName | stats count</query>
+          <query>index=proxylogon sourcetype=windows_events_proxylogon EventCode=10 TargetProcessName="*lsass.exe*" | stats count</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>
@@ -57,10 +57,33 @@
   </row>
   <row>
     <panel>
+      <title>Falsos Positivos Regla 1 (debe ser 0)</title>
+      <single>
+        <search>
+          <query>index=proxylogon sourcetype=iis c_ip="192.168.1.*" (cs_uri_stem="*autodiscover*" OR cs_uri_stem="*/ecp/*") (cs_uri_query="*@*" OR cs_Cookie="*X-AnonResource-Backend*" OR cs_Cookie="*X-BEResource*") | stats count</query>
+          <earliest>0</earliest>
+          <latest></latest>
+        </search>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Validacion contra dataset REAL (OTRF)</title>
+      <single>
+        <search>
+          <query>index=proxylogon sourcetype=json_otrf_real EventID=1 ParentImage="*w3wp*" | stats count</query>
+          <earliest>0</earliest>
+          <latest></latest>
+        </search>
+      </single>
+    </panel>
+    <panel>
       <title>Top IPs origen (trafico IIS)</title>
       <table>
         <search>
-          <query>index=proxylogon sourcetype=iis c_ip!="203.0.113.77" | top limit=10 c_ip</query>
+          <query>index=proxylogon sourcetype=iis | top limit=10 c_ip</query>
           <earliest>0</earliest>
           <latest></latest>
         </search>

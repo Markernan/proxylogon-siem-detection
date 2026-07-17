@@ -1,5 +1,9 @@
 # Guía de Splunk — Carga de datos, búsquedas SPL y dashboards
 
+> **IMPORTANTE para la demo**: al correr cualquier búsqueda, poner el rango de tiempo (arriba a la
+> derecha) en **"Last 7 days"** o **"All time"**. Los datos del incidente simulado de CFP son del
+> 2026-07-16; el dataset real de OTRF es del 2021-03-14. Con "Last 24 hours" no se verían.
+
 ## 1. Crear el índice
 
 `Settings > Indexes > New Index` → nombre `proxylogon` (o el que prefieran, ajustar en todas las
@@ -102,23 +106,20 @@ triage. Buen momento para explicar el comando `lookup` como feature nativa del S
 
 ### Regla 2 — Escritura del webshell (CVE-2021-27065)
 ```spl
-index=proxylogon sourcetype=iis c_ip="103.77.192.219"
+index=proxylogon sourcetype=iis
 ((cs_uri_stem="/ecp/proxyLogon.ecp" cs_method=POST) OR (cs_uri_stem="/owa/auth/help.aspx" cs_method=GET))
-| dedup cs_uri_stem
 | table _time c_ip cs_method cs_uri_stem sc_status time_taken
 | sort _time
 ```
 **Por qué detecta esto**: muestra las 2 mitades de la instalación del webshell — el POST que lo
 escribe (`/ecp/proxyLogon.ecp`) seguido, 15 segundos después, del GET que confirma que quedó
-accesible (`/owa/auth/help.aspx`). Ambos desde la misma IP ya confirmada como IOC real en la Regla 1.
+accesible (`/owa/auth/help.aspx`).
 
-**Nota histórica**: la versión original de esta regla usaba el comando `transaction` de Splunk (una
-función nativa para correlacionar secuencias de eventos por proximidad temporal) con un patrón
-genérico `POST → GET a cualquier .aspx`. Se simplificó a la IP y ruta específicas porque, tras varias
-iteraciones de carga de datos durante el desarrollo, quedaron eventos con timestamps idénticos que
-hacían el comportamiento de `transaction` menos predecible para una demo en vivo. Vale la pena
-mencionar `transaction` igual en la sustentación como la función que se evaluó y por qué se optó por
-un patrón más determinístico — es una decisión de ingeniería real, no un detalle menor.
+**Nota para la ronda de preguntas**: una alternativa que se evaluó fue usar el comando `transaction`
+de Splunk (función nativa para correlacionar secuencias de eventos por proximidad temporal — POST
+seguido de GET desde la misma IP en <2 minutos). Es un buen ejemplo de "propiedad propia del SIEM"
+para la rúbrica. Se optó por la versión con rutas específicas por ser más determinística y legible,
+pero conviene mencionar `transaction` como la técnica de correlación que se consideró.
 
 ### Regla 3 — Ejecución de comandos vía webshell (C2)
 ```spl
@@ -180,11 +181,11 @@ artefacto exacto que representamos en el dataset sintético, pero capturado de u
 verdadera, no simulada. Este es el argumento más fuerte para defender que el diseño de detección es
 válido, no solo "se ve razonable en la teoría".
 
-También quedó en la evidencia cruda de ese dataset (mismo `index=proxylogon sourcetype=_json`) el
-payload literal usado por el exploit real vía `Set-OabVirtualDirectory` (la técnica exacta de
-CVE-2021-27065, un webshell JScript inyectado en el parámetro `-ExternalUrl`):
+También quedó en la evidencia cruda de ese dataset (mismo `sourcetype=json_otrf_real`) el payload
+literal usado por el exploit real vía `Set-OabVirtualDirectory` (la técnica exacta de CVE-2021-27065,
+un webshell JScript inyectado en el parámetro `-ExternalUrl`):
 ```spl
-index=proxylogon sourcetype=_json SourceName="MSExchange CmdletLogs" Message="*OabVirtualDirectory*"
+index=proxylogon sourcetype=json_otrf_real SourceName="MSExchange CmdletLogs" Message="*OabVirtualDirectory*"
 | table TimeCreated Message
 ```
 
@@ -201,14 +202,24 @@ index=proxylogon sourcetype=iis c_ip="192.168.1.*"
 Resultado verificado: **0**. Repetir el mismo patrón (filtrar a solo tráfico/procesos benignos) es
 la evidencia cuantitativa de bajo FP que se puede mostrar en vivo durante el triage.
 
-### Nota sobre `dedup`: por qué aparece en varias reglas
-Durante la carga de datos se hicieron varias iteraciones del dataset sintético (se fue mejorando con
-IOCs reales a medida que se investigaba — ver `00_PLAN_MAESTRO.md`). Como no fue posible borrar el
-índice entre iteraciones sin arriesgar el ambiente días antes de la entrega, las 5 reglas incluyen
-`dedup` sobre los campos que identifican un evento único, para que el resultado final no muestre
-duplicados de versiones anteriores del dataset. Esto es honesto de explicar si preguntan: es una
-práctica real de limpieza de datos en investigaciones donde el pipeline de ingesta se ejecuta más de
-una vez.
+### Panel adicional en el dashboard: Fase 5c — Exfiltración (descarga del .pst)
+Después de exportar el buzón a un `.pst` en una carpeta web-accesible, el atacante lo descarga vía
+HTTP a través del propio webshell. Se ve en los logs de IIS como un GET a un `.pst` con un
+`time-taken` muy alto (transferencia grande):
+```spl
+index=proxylogon sourcetype=iis cs_uri_stem="*.pst"
+| table _time c_ip cs_method cs_uri_stem sc_status time_taken
+```
+Resultado: `GET /aspnet_client/backup.pst` desde `103.77.192.219`, `time-taken=5200ms` — la última
+fase del kill chain.
+
+### Nota sobre la limpieza del índice (por si preguntan por qué el SPL es tan limpio)
+Durante el desarrollo se hicieron varias iteraciones del dataset (se fue mejorando con IOCs reales a
+medida que se investigaba — ver `00_PLAN_MAESTRO.md`). Al final se **vació el índice por completo**
+(`splunk clean eventdata -index proxylogon`) y se recargaron los datasets finales una sola vez, de
+modo que las reglas quedaron con SPL simple y directo, sin `dedup` ni exclusiones de datos antiguos.
+Buen ejemplo de higiene de datos en un SIEM: un índice limpio hace las detecciones más legibles y
+mantenibles.
 
 ### Regla 2 mejorada — patrón oficial de Microsoft (opcional, mayor precisión)
 El script oficial de Microsoft [`Test-ProxyLogon.ps1`](https://github.com/microsoft/CSS-Exchange/blob/main/Security/src/Test-ProxyLogon.ps1)

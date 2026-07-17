@@ -14,7 +14,7 @@ sigue estos pasos:
 
 ### 1. Evaluación inicial (¿qué tenemos?)
 - **Qué la generó**: regla "ProxyLogon - SSRF Autodiscover Bypass" (ver `03_guia_splunk.md`).
-- **Timestamp**: 2021-03-02 09:45:03.
+- **Timestamp**: 2026-07-16 09:45:03.
 - **Severidad asignada por la regla**: Alta (toca directamente el frontend de Exchange expuesto).
 - **Entidades involucradas**: IP origen `103.77.192.219` (externa), host destino `EXCH01.cfp-financiera.local`
   (`10.10.20.15`).
