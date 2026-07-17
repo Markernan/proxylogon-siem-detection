@@ -1,7 +1,7 @@
 # Plan Maestro — Proyecto ProxyLogon (Detección SIEM)
 
 ## Estado del equipo
-- **Equipo**: 2 personas (originalmente 3, un integrante no continuó).
+- **Equipo**:
 - **Plazo**: 4 días desde el 13/07/2026 hasta la sustentación.
 - **Alcance elegido**: SOLO detección SIEM (no SOAR/TheHive). La rúbrica dice "escoger uno".
 - **Herramienta SIEM**: Splunk, instalado y corriendo en `http://26.28.194.96:8000`.
