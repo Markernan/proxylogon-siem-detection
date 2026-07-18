@@ -39,6 +39,21 @@ _time                c_ip              cs_uri_stem                        sc_sta
 > confiable de ataque — muchísimo tráfico de internet golpea endpoints públicos y recibe 403 sin
 > ninguna intención maliciosa detrás. Lo mostramos como contexto, no como alerta."*
 
+**Pregunta muy probable — "¿por qué las 3 IPs de reconocimiento son distintas entre sí, y distintas
+de la IP del atacante real (`103.77.192.219`) que vamos a ver después?" — respuesta lista:**
+> *"Es intencional, no un error. Estas tres IPs —`198.51.100.23`, `.45` y `.91`— son de un rango
+> reservado para documentación (RFC 5737), y las usamos deliberadamente como tráfico de
+> reconocimiento genérico, **sin atribuir** a ningún actor específico. Esto refleja algo real: el
+> escaneo masivo de servidores Exchange en 2021 no lo hizo solo HAFNIUM — el propio reporte de ESET
+> que citamos documenta **10 grupos APT distintos** escaneando y explotando la misma cadena de
+> vulnerabilidades tras la divulgación pública, además de investigadores de seguridad y bots
+> automatizados haciendo lo mismo. Con un simple 403 rechazado, ningún analista de SOC real podría
+> atribuir ese escaneo a un actor específico — la atribución solo se vuelve posible más adelante,
+> cuando aparece la IP `103.77.192.219`, que sí está confirmada como IOC real de HAFNIUM por el
+> lookup automático y por VirusTotal. Es también una práctica operativa real de los atacantes: usar
+> infraestructura barata y desechable para el reconocimiento de bajo valor, y reservar
+> infraestructura más cuidada para la explotación real."*
+
 ---
 
 ## Panel 2 — Fase 2: Explotación — SSRF Autodiscover Bypass (CVE-2021-26855)
