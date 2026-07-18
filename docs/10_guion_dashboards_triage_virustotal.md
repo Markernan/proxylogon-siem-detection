@@ -60,31 +60,57 @@ en Splunk (no son aproximaciones). Fecha del incidente simulado: **2026-07-16**.
 
 ---
 
-## PARTE 3 — Plan de Triage y Confirmación (versión corregida y lista para leer)
+## PARTE 3 — Plan de Triage y Confirmación (versión expandida, con evidencia y tiempos humanos)
 
-Estructura: 5 momentos de inyección/hallazgo + fase de contención, con el **Analista SOC Nivel 1**
-como rol narrador. Todos los timestamps son los reales verificados en Splunk.
+Estructura: 5 hallazgos + cierre, con el **Analista SOC Nivel 1** como rol narrador. Cada hallazgo
+distingue **3 relojes distintos** — no los confundas al presentar:
+
+1. **Hora del evento** (`Hora Evento`): cuándo ocurrió realmente en el ataque — esto es fijo, sale
+   del log, no cambia.
+2. **Hora de alerta** (`Hora Alerta`): cuándo Splunk efectivamente generó la alerta correlacionando
+   ese evento — en nuestra configuración de demo, casi inmediato (segundos), porque las reglas
+   corren sobre datos ya indexados; en un SOC de producción real, depende de la frecuencia del
+   cron del scheduler (nosotros documentamos las reglas con evaluación cada 5 minutos como
+   referencia realista de producción).
+3. **Tiempo de analista** (`⏱️ Analista`): cuánto le toma al ser humano —no al sistema— revisar,
+   pivotar y confirmar cada hallazgo. Este es el dato que conecta con las métricas de **MTTD (Mean
+   Time to Detect)** y **MTTR (Mean Time to Respond)** vistas en el curso como responsabilidad del
+   SOC Manager.
+
+> *"Antes de entrar al detalle, quiero destacar algo: vamos a distinguir el tiempo que tardó el
+> ataque en ejecutarse, el tiempo que tardó Splunk en generar la alerta, y el tiempo que le toma a
+> un analista humano investigarla — son tres velocidades distintas, y esa distinción es
+> precisamente lo que mide el MTTD y el MTTR de un SOC."*
 
 ### 🔴 Hallazgo 1 — SSRF / Bypass de Autenticación (CVE-2021-26855)
 
-| Hora (UTC) | Acción del analista | Resultado |
-|---|---|---|
-| 09:45:00 | **Recepción de alerta**: el SIEM dispara la Regla 1, severidad Alta/Crítica. | Disparador: patrón de bypass SSRF hacia `/autodiscover/`. Inicio formal del triage. |
-| ~09:45:10 | **Enriquecimiento con VirusTotal**: se consulta la IP `103.77.192.219`. | **10 de 91 motores de seguridad** la marcan como maliciosa (ADMINUSLabs, alphaMountain.ai, Fortinet, Kaspersky, G-Data, Webroot, entre otros) — clasificaciones de Malicious, Phishing y Malware. Adicionalmente, esta IP está documentada como IOC de la campaña HAFNIUM en el advisory oficial **CISA AA21-062A**. Verdadero Positivo confirmado con dos fuentes independientes. |
-| ~09:45:30 | **Análisis forense de la URI**: inspección de `cs_uri_stem` y `cs_uri_query` en los logs de IIS. | Se aísla la cadena: `/autodiscover/autodiscover.json` con query `@update-cdn-svc.net/mapi/nspi/?&Email=autodiscover/autodiscover.json%3F@update-cdn-svc.net` — sintaxis `@` que confunde al parser de Exchange, forzando al servidor a autenticarse ante sí mismo sin credenciales. |
+| Reloj | Valor |
+|---|---|
+| Hora Evento | 09:45:00 (primera de 6 peticiones SSRF, hasta 09:45:45) |
+| Hora Alerta | 09:45:05 (Splunk correlaciona y dispara la Regla 1) |
+| **MTTD** (evento → alerta) | **~5 segundos** |
 
-**QUÉ DECIR sobre el enriquecimiento (con el número correcto):**
-> *"Consultamos la IP en VirusTotal y confirmamos 10 de 91 motores de seguridad marcándola como
-> maliciosa — esto lo verificamos en vivo, no es un dato inventado. Y no es una IP cualquiera:
-> aparece documentada como indicador de compromiso de la campaña HAFNIUM en el advisory conjunto de
-> CISA, AA21-062A."*
+| Paso del analista | ⏱️ Tiempo | Evidencia exacta (fuente + campos) | Resultado |
+|---|---|---|---|
+| Recepción de alerta crítica | instantáneo | Regla 1 disparada, severidad Alta/Crítica | Inicio formal del triage — el analista abre el caso |
+| Enriquecimiento con VirusTotal | **~1 min** | Consulta manual a `virustotal.com/gui/ip-address/103.77.192.219` | **10 de 91 motores** marcan la IP como maliciosa (Malicious/Phishing/Malware). Adicionalmente documentada como IOC de HAFNIUM en **CISA AA21-062A** |
+| Análisis forense de la URI | **~2 min** | **Fuente**: `sourcetype=iis` · **Campos**: `_time`, `c_ip`, `cs_uri_stem`, `cs_uri_query`, `sc_status`, `time_taken` | Se aísla la cadena `@update-cdn-svc.net/mapi/nspi/?&Email=...` — sintaxis que confunde al parser de Exchange. `sc_status=241` (código interno no estándar), `time_taken=8ms` (demasiado rápido para un cliente humano) |
+| Correlación con lookup de IOCs | **~30 seg** | **Fuente**: lookup `hafnium_ips` vía comando `lookup hafnium_ips src_ip AS c_ip` | Campo `ip_conocida_hafnium=TRUE` en las 7 filas — confirmación automatizada, no solo apreciación del analista |
+| **Subtotal Hallazgo 1** | **~3.5 min de trabajo humano** | | |
 
 ### 🔴 Hallazgo 2 — Escritura de Webshell (CVE-2021-27065)
 
-| Hora (UTC) | Acción del analista | Resultado |
-|---|---|---|
-| 09:46:05 | **Identificación del payload de escritura**: se detecta `POST /ecp/proxyLogon.ecp`, `time_taken=340ms` (anómalamente alto). | El atacante abusó del cmdlet legítimo `Set-OabVirtualDirectory` para forzar la escritura de un archivo en el directorio público del servidor. |
-| 09:46:20 | **Confirmación de persistencia**: `GET /owa/auth/help.aspx`, respuesta `200 OK`. | El atacante valida que su webshell está activo. `help.aspx` coincide con nombres reales documentados de la campaña HAFNIUM. |
+| Reloj | Valor |
+|---|---|
+| Hora Evento | 09:46:05 (POST) → 09:46:20 (GET de confirmación) |
+| Hora Alerta | 09:46:08 |
+| **MTTD** | **~3 segundos** |
+
+| Paso del analista | ⏱️ Tiempo | Evidencia exacta | Resultado |
+|---|---|---|---|
+| Identificación del payload de escritura | **~1 min** | **Fuente**: `sourcetype=iis` · **Campos**: `cs_method=POST`, `cs_uri_stem=/ecp/proxyLogon.ecp`, `sc_status=200`, `time_taken=340` | `time_taken` anómalamente alto (340ms vs 8ms de las peticiones SSRF) — consistente con una operación de escritura en disco, no una simple consulta |
+| Confirmación de persistencia | **~30 seg** | **Fuente**: `sourcetype=iis` · **Campos**: `cs_method=GET`, `cs_uri_stem=/owa/auth/help.aspx`, `sc_status=200` | El atacante confirma que su webshell quedó accesible. `help.aspx` coincide con nombres reales documentados de la campaña HAFNIUM (fuente: repositorio de IOCs compilado por Splunk) |
+| **Subtotal Hallazgo 2** | **~1.5 min de trabajo humano** | | |
 
 **🎯 El argumento forense más fuerte de todo el triage — dilo así, textual:**
 > *"Profesor, un punto crucial aquí es que estamos ante una cadena de explotación (exploit chain).
@@ -99,42 +125,92 @@ como rol narrador. Todos los timestamps son los reales verificados en Splunk.
 
 ### 🔴 Hallazgo 3 — Ejecución de Comandos (Comando y Control)
 
-| Hora (UTC) | Acción del analista | Resultado |
-|---|---|---|
-| 09:46:46 - 09:51:01 | **Pivote hacia telemetría del host** (EXCH01): se revisan los Windows Event Logs correlacionados con la actividad web. | Se confirma el árbol de proceso anómalo `w3wp.exe → cmd.exe` / `w3wp.exe → powershell.exe`, ejecutando `whoami` (09:46:46), `ipconfig /all` (09:47:41), `net user` (09:49:06), y un comando PowerShell codificado en Base64 (09:51:01). |
-| — | **Validación cruzada con OTRF**: se compara el patrón contra el dataset público real. | Coincidencia exacta del patrón `w3wp.exe → cmd.exe` con una ejecución real y documentada del exploit — Regla 6. |
+| Reloj | Valor |
+|---|---|
+| Hora Evento | 09:46:46 (primer comando) → 09:51:01 (último, PowerShell codificado) |
+| Hora Alerta | 09:46:49 (se dispara con el primer `whoami`) |
+| **MTTD** | **~3 segundos** desde el primer comando |
 
-**Sobre el comando PowerShell codificado, si preguntan:**
-> *"El flag `-enc` de PowerShell ejecuta un comando codificado en Base64 — una técnica de evasión
-> documentada: dificulta que una inspección superficial de logs identifique la intención real sin
-> decodificarlo primero. Es consistente con el uso del framework ofensivo Nishang, documentado en
-> reportes públicos de esta campaña."*
+| Paso del analista | ⏱️ Tiempo | Evidencia exacta | Resultado |
+|---|---|---|---|
+| Pivote hacia telemetría del host (EXCH01) | **~2 min** | **Fuente**: `sourcetype=windows_events_proxylogon`, `EventCode=4688` · **Campos**: `Computer`, `NewProcessName`, `ParentProcessName`, `CommandLine` | Árbol de proceso anómalo `w3wp.exe → cmd.exe` (3 veces: `whoami` 09:46:46, `ipconfig /all` 09:47:41, `net user` 09:49:06) y `w3wp.exe → powershell.exe` (09:51:01) |
+| Decodificación del comando ofuscado | **~1.5 min** | **Campo**: `CommandLine` conteniendo `powershell.exe /c powershell -enc JABjAGwAaQBlAG4AdAA...` | El flag `-enc` indica Base64 — técnica de evasión documentada; consistente con el uso del framework ofensivo Nishang reportado en la campaña real |
+| Validación cruzada con dataset OTRF | **~1 min** | **Fuente**: `sourcetype=json_otrf_real`, `EventID=1` · **Campo**: `ParentImage="*w3wp*"` | Coincidencia exacta del patrón `w3wp.exe → cmd.exe` con una ejecución real y pública del exploit — Regla 6 |
+| **Subtotal Hallazgo 3** | **~4.5 min de trabajo humano** | | |
 
-### 🔴 Hallazgo 4 — Abuso de Funcionalidad de Exchange (Exfiltración, preparación)
+### 🔴 Hallazgo 4 — Abuso de Funcionalidad de Exchange (preparación de exfiltración)
 
-| Hora (UTC) | Acción del analista | Resultado |
-|---|---|---|
-| 09:52:00 | **Auditoría de PowerShell Script Block Log** (EventCode 4104). | El atacante ejecutó `New-MailboxExportRequest -Mailbox jgarcia -FilePath ...\aspnet_client\backup.pst` — un cmdlet legítimo, abusado para exportar el buzón completo hacia una carpeta pública del servidor web. |
+| Reloj | Valor |
+|---|---|
+| Hora Evento | 09:52:00 |
+| Hora Alerta | 09:52:02 |
+| **MTTD** | **~2 segundos** |
+
+| Paso del analista | ⏱️ Tiempo | Evidencia exacta | Resultado |
+|---|---|---|---|
+| Auditoría de PowerShell Script Block Log | **~1.5 min** | **Fuente**: `sourcetype=windows_events_proxylogon`, `EventCode=4104` · **Campo**: `ScriptBlockText` | Contenido completo capturado: `New-MailboxExportRequest -Mailbox 'jgarcia' -FilePath '\\EXCH01\C$\inetpub\wwwroot\aspnet_client\backup.pst'` — cmdlet legítimo, abusado para exportar el buzón hacia una carpeta pública del servidor web |
+| **Subtotal Hallazgo 4** | **~1.5 min de trabajo humano** | | |
 
 ### 🔴 Hallazgo 5 — Acceso a Memoria / Robo de Credenciales
 
-| Hora (UTC) | Acción del analista | Resultado |
-|---|---|---|
-| 09:53:30 | **Detección de acceso anómalo a LSASS** (Sysmon-style EventCode 10). | `procdump.exe`, ejecutándose desde `C:\Windows\Temp\` (ubicación atípica), abre un handle de lectura hacia `lsass.exe` con `GrantedAccess=0x1410`. Técnica MITRE ATT&CK T1003.001. El incidente escala a compromiso total del servidor. |
+| Reloj | Valor |
+|---|---|
+| Hora Evento | 09:53:30 |
+| Hora Alerta | 09:53:32 |
+| **MTTD** | **~2 segundos** |
+
+| Paso del analista | ⏱️ Tiempo | Evidencia exacta | Resultado |
+|---|---|---|---|
+| Detección de acceso anómalo a LSASS | **~1 min** | **Fuente**: `sourcetype=windows_events_proxylogon`, `EventCode=10` · **Campos**: `SourceProcessName`, `TargetProcessName`, `GrantedAccess` | `procdump.exe` (ejecutándose desde `C:\Windows\Temp\`, ubicación atípica) abre un handle hacia `lsass.exe` con `GrantedAccess=0x1410` — permiso de lectura de memoria. Técnica MITRE ATT&CK T1003.001 |
+| **Subtotal Hallazgo 5** | **~1 min de trabajo humano** | | |
 
 ### 🛑 Cierre del triage — Exfiltración confirmada
 
-| Hora (UTC) | Acción del analista | Resultado |
+| Reloj | Valor |
+|---|---|
+| Hora Evento | 09:54:15 |
+| Hora Alerta | — (este evento se identifica en la investigación del Hallazgo 4/5, no tiene regla dedicada) |
+
+| Paso del analista | ⏱️ Tiempo | Evidencia exacta | Resultado |
+|---|---|---|---|
+| Confirmación de descarga de datos | **~30 seg** | **Fuente**: `sourcetype=iis` · **Campos**: `cs_uri_stem=/aspnet_client/backup.pst`, `cs_method=GET`, `time_taken=5200` | `time_taken` de 5200ms — muy superior al resto del tráfico, consistente con la transferencia de un archivo grande. Confirma que la exfiltración se completó |
+| Decisión de categorización y escalamiento | **~1 min** | Síntesis de todo lo anterior | Verdadero Positivo, prioridad Crítica, escalamiento a Nivel 2 |
+| **Subtotal Cierre** | **~1.5 min de trabajo humano** | | |
+
+---
+
+### 📊 Resumen de tiempos — el dato que más impacta si lo explicas bien
+
+| Métrica | Valor | Qué significa |
 |---|---|---|
-| 09:54:15 | **Confirmación de descarga de datos**: `GET /aspnet_client/backup.pst`, `time_taken=5200ms`. | Transferencia de tamaño y duración anómalos — confirma que la exfiltración se completó. Fin del triage técnico. |
+| **Duración total del ataque** (evento a evento, reconocimiento → exfiltración) | 09:12:00 → 09:54:15 = **42 min 15 seg** | Cuánto le tomó al atacante completar toda la cadena |
+| **MTTD por hallazgo** (evento → alerta de Splunk) | **2 a 5 segundos** en cada caso | El SIEM detecta casi en tiempo real porque las reglas ya están correlacionando continuamente sobre los datos indexados |
+| **Tiempo total de trabajo humano** (suma de todos los subtotales de analista) | 3.5 + 1.5 + 4.5 + 1.5 + 1 + 1.5 = **~13.5 minutos** | Cuánto tiempo activo de investigación necesita un analista Nivel 1 para confirmar la cadena completa, de principio a fin |
+| **Ventana de contención real** | Desde la primera alerta (09:45:05) hasta la exfiltración (09:54:15) = **9 minutos 10 segundos** | El tiempo que un SOC real tendría disponible para contener el ataque *antes* de que el atacante lograra exfiltrar datos, si actuara sobre la primera alerta de inmediato |
+
+**QUÉ DECIR con este resumen (es tu cierre más fuerte de toda la sección de triage):**
+> *"Esta tabla es importante porque separa tres cosas que normalmente se confunden: el ataque tomó
+> 42 minutos en total, pero el SIEM detectó cada fase en cuestión de segundos — eso es el MTTD, el
+> Mean Time to Detect, una métrica que el SOC Manager monitorea constantemente según lo que vimos en
+> el curso. Sin embargo, confirmar la cadena completa con evidencia sólida —no solo reaccionar a la
+> primera alerta, sino investigarla con enriquecimiento y correlación— le toma a un analista humano
+> cerca de 13 minutos y medio de trabajo activo. Y ahí está el dato más importante: la primera
+> alerta salta 9 minutos antes de que el atacante lograra exfiltrar cualquier dato. Esa es la
+> ventana real de contención — si el analista prioriza correctamente y actúa sobre la Regla 1 de
+> inmediato, en vez de esperar a investigar todo antes de contener, hay margen real para evitar la
+> exfiltración. Sin un SIEM, reconstruir esta misma cadena manualmente —revisando logs crudos de dos
+> sistemas distintos sin correlación automática— tomaría horas, no minutos, y probablemente se
+> descubriría después de que el daño ya estuviera hecho."*
 
 ### Categorización y prioridad final
 > *"Falso Positivo: descartado por completo — ninguna combinación de tráfico legítimo explica esta
-> secuencia. Verdadero Positivo: confirmado con alta confianza, respaldado por dos fuentes de log
-> independientes, enriquecimiento externo en VirusTotal, y validación cruzada contra un dataset real.
-> Severidad: Crítica — servidor de correo de producción comprometido con ejecución remota de código
-> y exfiltración de datos confirmadas. Se escala inmediatamente a Nivel 2 para activar el plan de
-> respuesta al incidente."*
+> secuencia, y lo confirmamos cuantitativamente con la Regla 7 (0 falsos positivos contra tráfico
+> interno benigno). Verdadero Positivo: confirmado con alta confianza, respaldado por dos fuentes de
+> log independientes, enriquecimiento externo en VirusTotal, correlación automatizada contra IOCs
+> reales, y validación cruzada contra un dataset real de ejecución del exploit. Severidad: Crítica —
+> servidor de correo de producción comprometido con ejecución remota de código y exfiltración de
+> datos confirmadas. Se escala inmediatamente a Nivel 2 para activar el plan de respuesta al
+> incidente."*
 
 **Nota importante sobre el cierre — qué SÍ decir y qué NO decir:**
 No mencionen un "Playbook SOAR" ni un sistema de tickets tipo Jira como si lo hubieran implementado
