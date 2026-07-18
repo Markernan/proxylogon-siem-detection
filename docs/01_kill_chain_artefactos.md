@@ -57,9 +57,15 @@ Marauder") y por el propio **Microsoft Threat Intelligence Center (MSTIC)**.
 | CVE-2021-26858 | Exchange (post-auth) | Escritura arbitraria de archivos | Escribir archivos en cualquier ruta del servidor |
 | CVE-2021-27065 | ECP (post-auth) | Escritura arbitraria de archivos | Vía usada en la explotación masiva para dejar webshells |
 
+
+
 El nombre "ProxyLogon" viene de que el atacante logra un **proxy hacia un logon válido**: usa el
 SSRF para que el propio servidor Exchange se autentique a sí mismo en nombre de un usuario, sin
 necesitar la contraseña real.
+
+adjunto:
+en ciberseguridad, ciertas alertas posteriores actúan como un "efecto dominó" que delata la existencia de la vulnerabilidad inicial.  Para el caso de ProxyLogon, las vulnerabilidades compañeras que demuestran que el CVE-2021-26855 ocurrió son el CVE-2021-27065 (o el CVE-2021-26858).  Aquí tienes la lógica técnica exacta para explicárselo al jurado y dejarlos con la boca abierta::link: La Lógica de la Cadena: ¿Por qué uno demuestra el otro?CVE-2021-26855 (El SSRF): Es una vulnerabilidad pre-autenticación (el atacante no necesita usuario ni clave para explotarla).  CVE-2021-27065 (Escritura del Archivo / Webshell): Es una vulnerabilidad post-autenticación. Esto significa que, bajo condiciones normales, solo un administrador legítimo con credenciales válidas podría escribir archivos en esos directorios de Exchange.  :bulb: El argumento forense irrefutable: Si tu SIEM detecta que un usuario no autenticado (la IP externa) logró activar el CVE-2021-27065 para escribir la webshell help.aspx, implícitamente se demuestra la presencia del CVE-2021-26855. El atacante usó el SSRF como un "puente" para saltarse la autenticación y poder ejecutar el segundo CVE.  :speaking_head: Cómo decírselo al Jurado (Guion Pro)Muestra el panel donde se ve la creación del archivo (la Webshell) y dilo así:"Profesor, un punto crucial aquí es que estamos ante un Exploit Chain corporativo. Al analizar los logs de Windows, detectamos la presencia del CVE-2021-27065, que es una vulnerabilidad de escritura arbitraria de archivos post-autenticación utilizada para dropear la webshell.  Como esta acción requiere privilegios de administrador que el atacante externo no poseía, el hallazgo de este segundo código confirma e indica de forma automática la explotación exitosa del CVE-2021-26855. El SSRF fue el vector necesario para engañar al backend de Exchange, omitir la autenticación y permitir que el CVE-2021-27065 tomara el control del servidor. Una fase no puede existir sin la otra en este tipo de incidentes
+
 
 ## 2. Cyber Kill Chain
 
